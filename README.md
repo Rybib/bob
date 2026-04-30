@@ -1,12 +1,13 @@
 # BOB
 
-BOB is a local-first voice assistant for macOS. It can listen for a wake word, transcribe your speech, run a local GGUF language model, speak back with Kokoro TTS, and build real code projects into a local `projects/` workspace.
+BOB is a local-first voice assistant for macOS and Windows. It can listen for a wake word, transcribe your speech, run a local GGUF language model, speak back with Kokoro TTS, and build real code projects into a local `projects/` workspace.
 
-The goal is to make a small Jarvis-style assistant that feels simple to launch and useful once it is running: double-click one file, let the guided setup do the heavy lifting, then talk to BOB.
+The goal is to make a small Jarvis-style assistant that feels simple to launch and useful once it is running: double-click the launcher for your operating system, let the guided setup do the heavy lifting, then talk to BOB.
 
 ## Highlights
 
 - Local voice assistant with wake word and push-to-talk support.
+- macOS and Windows launchers.
 - First-launch setup wizard that creates the needed folders and downloads models.
 - Local speech-to-text with Faster Whisper.
 - Local LLM inference with `llama-cpp-python` and GGUF models.
@@ -15,35 +16,61 @@ The goal is to make a small Jarvis-style assistant that feels simple to launch a
 - Code-building harness that writes generated code into files instead of only replying in chat.
 - Project workspace where BOB can create HTML, CSS, JavaScript, Python, and other files.
 - Offline-first after setup: once models are downloaded, BOB runs from local files.
-- Clean macOS launcher with `Launch Bob.command`.
 
 ## Quick Start
 
-On macOS, double-click:
+Download or clone the BOB folder, then double-click the launcher for your operating system.
+
+### macOS
+
+Double-click:
 
 ```text
-Launch Bob.command
+Launch Bob Mac.command
 ```
 
-The launcher opens Terminal and starts BOB. On first launch, it guides you through setup and prepares everything BOB needs.
+The macOS launcher opens Terminal, checks Python, creates a local `.venv`, installs dependencies, installs `llama-cpp-python` with Apple Metal support, and starts BOB.
+
+If Python is missing, the launcher can offer to install Homebrew and Python.
+
+### Windows
+
+Double-click:
+
+```text
+Launch Bob Windows.bat
+```
+
+The Windows launcher opens Command Prompt, checks Python, creates a local `.venv`, installs dependencies, installs `llama-cpp-python`, and starts BOB.
+
+If Python is missing, the launcher can try to install Python with `winget`. Native Windows is recommended instead of WSL because microphone and speaker access is much easier for a voice assistant.
+
+## First Launch
+
+On first launch, BOB guides you through setup.
 
 The setup flow can:
 
 1. Check for Python 3.
-2. Offer to install Homebrew and Python if Python is missing.
-3. Create a local `.venv`.
-4. Install Python dependencies.
-5. Install `llama-cpp-python` with Apple Metal support when available.
-6. Create local `models/`, `projects/`, and `logs/` folders.
-7. Let you choose which LLM to download.
-8. Download the selected LLM, Kokoro, Whisper, and OpenWakeWord assets.
-9. Start the BOB interface.
+2. Create a local `.venv`.
+3. Install Python dependencies.
+4. Create local `models/`, `projects/`, and `logs/` folders.
+5. Let you choose which LLM to download.
+6. Download the selected LLM, Kokoro, Whisper, and OpenWakeWord assets.
+7. Start the BOB interface.
 
-After setup is complete, double-clicking `Launch Bob.command` starts the app directly.
+After setup is complete, double-clicking the launcher starts the app directly.
 
 ## Manual Start
 
-If you prefer Terminal:
+If you prefer Terminal or Command Prompt:
+
+```bash
+python bob.py --setup
+python bob.py
+```
+
+On some macOS installs, use `python3`:
 
 ```bash
 python3 bob.py --setup
@@ -53,8 +80,8 @@ python3 bob.py
 Useful commands:
 
 ```bash
-python3 bob.py --check-offline
-python3 bob.py --test-builder
+python bob.py --check-offline
+python bob.py --test-builder
 ```
 
 ## Controls
@@ -143,7 +170,8 @@ BOB uses a dedicated code-building prompt and a fallback detector for raw code o
 Files meant to be shared on GitHub:
 
 ```text
-Launch Bob.command
+Launch Bob Mac.command
+Launch Bob Windows.bat
 bob.py
 requirements.txt
 README.md
@@ -166,10 +194,12 @@ Generated files are ignored by Git so the repository stays clean and lightweight
 
 ## Requirements
 
-BOB is built for macOS and expects:
+BOB expects:
 
+- macOS or Windows.
 - Python 3.10 or newer.
 - A microphone.
+- Speakers or headphones.
 - Enough disk space for the selected model downloads.
 - Internet access during first setup.
 
@@ -177,21 +207,24 @@ After setup, BOB is intended to run locally from downloaded assets.
 
 ## Troubleshooting
 
-If setup fails, check:
+Setup logs:
 
 ```text
 logs/launcher.log
+logs/launcher-windows.log
 ```
 
 Common fixes:
 
-- Re-run `Launch Bob.command`; the setup is designed to resume.
-- Install Xcode Command Line Tools if macOS prompts for them.
+- Re-run the launcher; the setup is designed to resume.
+- On macOS, install Xcode Command Line Tools if prompted.
+- On Windows, install Python from python.org if `winget` is unavailable.
+- On Windows, install Microsoft C++ Build Tools if `llama-cpp-python` cannot build or install.
 - Try the smaller Gemma model first if a large model is too slow.
-- Run `python3 bob.py --setup` to repeat the setup wizard.
-- Run `python3 bob.py --check-offline` after setup to verify local model paths.
+- Run `python bob.py --setup` to repeat the setup wizard.
+- Run `python bob.py --check-offline` after setup to verify local model paths.
 
-If wake word detection feels too quiet, check your macOS microphone input level in System Settings and make sure Terminal has microphone permission.
+If wake word detection feels too quiet, check your system microphone input level and make sure Terminal or Command Prompt has microphone permission.
 
 ## Privacy
 
@@ -199,4 +232,4 @@ BOB is designed to be local-first. It needs internet access to download models d
 
 ## Notes
 
-This is an experimental assistant project. It is meant to be easy to launch, easy to inspect, and easy to extend. The generated `projects/` folder is where BOB does its building work, while the repository itself stays focused on the launcher, app code, and documentation.
+This is an experimental assistant project. It is meant to be easy to launch, easy to inspect, and easy to extend. The generated `projects/` folder is where BOB does its building work, while the repository itself stays focused on the launchers, app code, and documentation.
