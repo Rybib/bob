@@ -9,6 +9,9 @@ LOG_FILE="$LOG_DIR/launcher.log"
 VENV_DIR=".venv"
 PY="$VENV_DIR/bin/python"
 MARKER="$VENV_DIR/.bob_deps_installed"
+PYTHON_CMD=""
+PYTHON_MIN_MINOR="3.10"
+PYTHON_MAX_MINOR="3.13"
 
 mkdir -p "$LOG_DIR" models projects
 : > "$LOG_FILE"
@@ -67,27 +70,68 @@ find_brew() {
 }
 
 refresh_path() {
-  export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+  export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 }
 
 ensure_python() {
   refresh_path
+  for candidate in python3.12 python3.11 python3.10 python3; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      if "$candidate" - <<'PY' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if (3, 10) <= sys.version_info[:2] < (3, 13) else 1)
+PY
+      then
+        PYTHON_CMD="$(command -v "$candidate")"
+        echo "    Found stable $($PYTHON_CMD --version 2>&1)"
+        return 0
+      fi
+    fi
+  done
+
   if command -v python3 >/dev/null 2>&1; then
-    echo "    Found $(python3 --version 2>&1)"
-    return 0
+    echo "    Found $(python3 --version 2>&1), but BOB uses Python 3.10-3.12 for native audio/model stability."
+  fi
+
+  BREW="$(find_brew)"
+  if [ -n "$BREW" ] && [ -x "$BREW" ]; then
+    echo "    Installing/checking Python 3.12 with Homebrew..."
+    run_quiet "$BREW" install python@3.12 || fail "Python 3.12 installation failed."
+    refresh_path
+    if command -v python3.12 >/dev/null 2>&1; then
+      PYTHON_CMD="$(command -v python3.12)"
+      echo "    Found stable $($PYTHON_CMD --version 2>&1)"
+      return 0
+    fi
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    if python3 - <<'PY' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if (3, 10) <= sys.version_info[:2] < (3, 13) else 1)
+PY
+    then
+      PYTHON_CMD="$(command -v python3)"
+      echo "    Found stable $($PYTHON_CMD --version 2>&1)"
+      return 0
+    fi
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    echo "    Python is installed, but not in BOB's stable range ($PYTHON_MIN_MINOR to before $PYTHON_MAX_MINOR)."
+  else
+    echo "    Python 3 is missing."
   fi
 
   if [[ "$OSTYPE" != "darwin"* ]]; then
-    fail "Python 3 is not installed. Install Python 3, then run this launcher again."
+    fail "Python 3.10, 3.11, or 3.12 is not installed. Install one of those versions, then run this launcher again."
   fi
 
-  echo "    Python 3 is missing."
-  echo "    BOB can install Homebrew and Python automatically."
+  echo "    BOB can install Homebrew and Python 3.12 automatically."
   echo "    This may ask for your Mac password or Xcode Command Line Tools."
   echo ""
-  read -r -p "Press Enter to install Python automatically, or press Ctrl+C to stop..."
+  read -r -p "Press Enter to install Python 3.12 automatically, or press Ctrl+C to stop..."
 
-  BREW="$(find_brew)"
   if [ -z "$BREW" ]; then
     echo "    Installing Homebrew..."
     echo "+ official Homebrew installer" >> "$LOG_FILE"
@@ -100,21 +144,39 @@ ensure_python() {
     fail "Homebrew installed, but the brew command was not found."
   fi
 
-  echo "    Installing Python with Homebrew..."
-  run_quiet "$BREW" install python || fail "Python installation failed."
+  echo "    Installing Python 3.12 with Homebrew..."
+  run_quiet "$BREW" install python@3.12 || fail "Python 3.12 installation failed."
   refresh_path
 
-  if ! command -v python3 >/dev/null 2>&1; then
-    fail "Python installation finished, but python3 was not found on PATH."
+  if command -v python3.12 >/dev/null 2>&1; then
+    PYTHON_CMD="$(command -v python3.12)"
+    echo "    Found stable $($PYTHON_CMD --version 2>&1)"
+    return 0
   fi
 
-  echo "    Found $(python3 --version 2>&1)"
+  fail "Python 3.12 installation finished, but python3.12 was not found on PATH."
 }
 
 install_dependencies() {
+  if [ -z "$PYTHON_CMD" ]; then
+    fail "No stable Python command was selected."
+  fi
+
+  if [ -x "$PY" ]; then
+    if ! "$PY" - <<'PY' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if (3, 10) <= sys.version_info[:2] < (3, 13) else 1)
+PY
+    then
+      backup="$VENV_DIR.old-$(date +%Y%m%d-%H%M%S)"
+      echo "    Existing environment uses an unstable Python for BOB. Moving it to $backup."
+      mv "$VENV_DIR" "$backup" >> "$LOG_FILE" 2>&1 || fail "Could not move the old Python environment."
+    fi
+  fi
+
   if [ ! -x "$PY" ]; then
     echo "    Creating local Python environment..."
-    run_quiet python3 -m venv "$VENV_DIR" || fail "Could not create the local Python environment."
+    run_quiet "$PYTHON_CMD" -m venv "$VENV_DIR" || fail "Could not create the local Python environment."
   else
     echo "    Local Python environment already exists."
   fi
@@ -141,6 +203,40 @@ install_dependencies() {
   fi
 }
 
+install_terminal_command() {
+  local target_dir="$HOME/.local/bin"
+  local launcher="$(pwd)/bob"
+
+  if [ ! -x "$launcher" ]; then
+    chmod +x "$launcher" >> "$LOG_FILE" 2>&1 || true
+  fi
+
+  if [ ! -d "$target_dir" ]; then
+    echo "    Creating user terminal command folder..."
+    mkdir -p "$target_dir" >> "$LOG_FILE" 2>&1 || {
+      echo "    Could not create $target_dir. You can still use ./bob in this folder."
+      return 0
+    }
+  fi
+
+  ln -sf "$launcher" "$target_dir/bob" >> "$LOG_FILE" 2>&1 || {
+    echo "    Could not install terminal command. You can still use ./bob in this folder."
+    return 0
+  }
+  ln -sf "$launcher" "$target_dir/Bob" >> "$LOG_FILE" 2>&1 || true
+
+  if ! grep -qs 'HOME/.local/bin' "$HOME/.zshrc" 2>/dev/null; then
+    {
+      echo ""
+      echo "# BOB terminal command"
+      echo 'export PATH="$HOME/.local/bin:$PATH"'
+    } >> "$HOME/.zshrc" 2>> "$LOG_FILE" || true
+  fi
+
+  export PATH="$HOME/.local/bin:$PATH"
+  echo "    Terminal command ready: type 'bob' or 'Bob' from any new Terminal."
+}
+
 header
 
 step "Checking Python"
@@ -149,6 +245,10 @@ echo ""
 
 step "Preparing Bob"
 install_dependencies
+echo ""
+
+step "Installing terminal command"
+install_terminal_command
 echo ""
 
 step "Checking models and setup"

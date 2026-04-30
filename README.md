@@ -61,11 +61,20 @@ The setup flow can:
 
 After setup is complete, double-clicking the launcher starts the app directly.
 
+The launchers also install a terminal shortcut when they can:
+
+```bash
+bob
+```
+
+On macOS, `Bob` also works. On Windows, open a new Command Prompt after first launch if `bob` is not recognized yet.
+
 ## Manual Start
 
 If you prefer Terminal or Command Prompt:
 
 ```bash
+./bob
 python bob.py --setup
 python bob.py
 ```
@@ -83,6 +92,8 @@ Useful commands:
 python bob.py --check-offline
 python bob.py --test-builder
 ```
+
+BOB uses Python 3.10-3.12 for the most stable local audio/model runtime. The Mac launcher automatically avoids Python 3.13/3.14 because several native packages used by Kokoro, Whisper, and llama.cpp can crash the whole Python process on newer unreleased/bleeding-edge runtimes.
 
 ## Controls
 
@@ -139,7 +150,7 @@ Large local models can take a long time to download and may need significant RAM
 
 ## Project Builder
 
-When you ask BOB to build code, websites, scripts, tools, or apps, it is designed to create real files in the `projects/` folder.
+When you ask BOB to build code, websites, scripts, tools, or apps, it is designed to work like a small bounded coding agent inside the `projects/` folder.
 
 Example requests:
 
@@ -147,23 +158,33 @@ Example requests:
 Build me a simple HTML website that says hello world.
 Make a Python calculator script.
 Create a small landing page with HTML, CSS, and JavaScript.
+Change the colors on the weather dashboard.
+Delete the old test page from the calculator project.
 ```
 
 Example output structure:
 
 ```text
 projects/
-  project-1/
+  hello-world-site/
     index.html
-  project-2/
+  calculator/
     main.py
-  project-3/
+  landing-page/
     index.html
     styles.css
     script.js
 ```
 
-BOB uses a dedicated code-building prompt and a fallback detector for raw code output. If the model replies with HTML or Python directly, BOB attempts to capture that code and save it into an appropriate project file.
+BOB can inspect existing project folders, remember the current project, create meaningful new folders, search files, read specific line ranges, write files, append files, make exact multi-edit replacements, move groups of files into folders, rename files or folders, delete files or folders, review website output, and run project commands with the working directory locked to `projects/`.
+
+After file-changing tools run, BOB automatically checks the changed project folder so the model can see what actually exists before it gives the final response. For website projects, BOB also reviews the HTML/CSS and fills in missing stylesheet files so generated pages look like real responsive websites instead of bare HTML.
+
+For follow-up requests like “fix it” or “make that project better,” BOB is designed to stay anchored to the existing project it just worked on instead of drifting into a new folder.
+
+During long sessions, BOB automatically compacts older conversation and tool context into a short memory summary before the model hits its context limit. When that happens, the live status will say it is compacting context, then the agent continues working with the important details preserved.
+
+BOB uses a dedicated tool harness for coding work plus a fallback detector for raw code output. If the model replies with HTML or Python directly, BOB attempts to capture that code and save it into an appropriate project file.
 
 ## Repository Layout
 

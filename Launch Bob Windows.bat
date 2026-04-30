@@ -27,6 +27,10 @@ call :step "Preparing Bob"
 call :install_dependencies || exit /b 1
 echo.
 
+call :step "Installing terminal command"
+call :install_terminal_command
+echo.
+
 call :step "Checking models and setup"
 echo     If this is the first launch, BOB will open the setup wizard.
 echo     The wizard downloads the selected LLM, Kokoro, Whisper, and OpenWakeWord.
@@ -185,5 +189,29 @@ if "%NEEDS_INSTALL%"=="1" (
   echo     Dependencies are ready.
 ) else (
   echo     Dependencies are already ready.
+)
+exit /b 0
+
+:install_terminal_command
+echo     Preparing bob command for Command Prompt...
+echo     You can always run bob.cmd from this folder.
+echo + setx PATH add current folder if needed >> "%LOG_FILE%"
+echo %PATH% | find /I "%CD%" >nul
+if not errorlevel 1 (
+  echo     Terminal command already available in this window.
+  exit /b 0
+)
+
+where powershell >nul 2>&1
+if errorlevel 1 (
+  echo     PowerShell was not found. Skipping PATH update.
+  exit /b 0
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$dir = (Resolve-Path '.').Path; $old = [Environment]::GetEnvironmentVariable('Path','User'); if (-not $old) { $old = '' }; $parts = $old -split ';' | Where-Object { $_ }; if ($parts -notcontains $dir) { [Environment]::SetEnvironmentVariable('Path', (($parts + $dir) -join ';'), 'User') }" >> "%LOG_FILE%" 2>&1
+if errorlevel 1 (
+  echo     Could not update user PATH. You can still run bob.cmd from this folder.
+) else (
+  echo     Terminal command ready after opening a new Command Prompt: type bob.
 )
 exit /b 0
