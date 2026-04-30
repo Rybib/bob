@@ -1,0 +1,19 @@
+# Core AI
+faster-whisper>=1.0.0
+openwakeword>=0.6.0
+
+# Audio I/O
+sounddevice>=0.4.6
+soundfile>=0.12.1
+
+# Model downloading
+huggingface_hub>=0.22.0
+
+# UI
+rich>=13.7.0
+pynput>=1.7.6
+
+# Utils
+numpy>=1.24.0
+scipy>=1.11.0
+kokoro-onnx>=0.4.0
