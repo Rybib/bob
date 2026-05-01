@@ -3468,6 +3468,13 @@ class BOB:
         last_stt_t   = time.time()
         STT_INTERVAL = 0.4                  # partial transcript every 0.4 s
 
+        # Adaptive silence threshold: calibrate from the first MIN_RECORD_SEC of audio.
+        # The bottom quartile of RMS values during that period = ambient noise floor.
+        # Fixed RECORD_SILENCE_RMS is often below mic noise and causes infinite loops.
+        calibration_rms: List[float] = []
+        calibrated = False
+        silence_threshold = RECORD_SILENCE_RMS
+
         while total_sec < MAX_RECORD_SEC:
             chunk = capture.read_chunk(timeout=0.15)
             if chunk is None:
@@ -3476,7 +3483,17 @@ class BOB:
             total_sec  += frame_sec
             rms = float(np.abs(chunk).mean())
             self._level = rms
-            silent_sec  = silent_sec + frame_sec if rms < RECORD_SILENCE_RMS else 0.0
+
+            if total_sec <= MIN_RECORD_SEC:
+                calibration_rms.append(rms)
+            elif not calibrated:
+                calibrated = True
+                calibration_rms.sort()
+                n = max(1, len(calibration_rms) // 4)
+                ambient_floor = sum(calibration_rms[:n]) / n
+                silence_threshold = max(RECORD_SILENCE_RMS, ambient_floor * 2.0)
+
+            silent_sec  = silent_sec + frame_sec if rms < silence_threshold else 0.0
 
             now = time.time()
             if now - last_stt_t >= STT_INTERVAL and len(frames) > 15:
@@ -3664,15 +3681,18 @@ class BOB:
                             self._live_text = partial
 
                         def on_speak_plan(text: str):
-                            """Fire plan TTS in background — return immediately so tools start in parallel."""
+                            """Show plan text and speak it; tools start in parallel immediately."""
+                            self._live_text = text
+                            self._set_state(State.SPEAKING)
                             def _play():
                                 try:
                                     self._tts.speak(text)
                                 except Exception:
                                     pass
+                                # Switch to THINKING once plan audio finishes
+                                if self.state == State.SPEAKING:
+                                    self._set_state(State.THINKING, "Working on it…")
                             threading.Thread(target=_play, daemon=True).start()
-                            self._set_state(State.THINKING, "Working on it…")
-                            self._live_text = ""
 
                         reply = self._llm.chat_stream(user_text, on_token, on_speak=on_speak_plan)
                         self._add_message("bob", reply)
