@@ -1799,7 +1799,7 @@ class ToolHarness:
         }
         tool_name = aliases.get(str(tool_name or ""), tool_name)
 
-        for generic_key in ("name", "folder", "directory", "dir"):
+        for generic_key in ("file", "filename", "filepath", "file_path", "name", "folder", "directory", "dir"):
             if generic_key in args and "path" not in args:
                 args["path"] = args[generic_key]
 
@@ -2033,9 +2033,38 @@ class LLMEngine:
         self._active_project: Optional[str] = None
         self._memory_summary = ""
 
+        # ── Claude Code-style agent runtime ───────────────────────────────────
+        from bob import BobAgent, AgentConfig
+        self._agent = BobAgent(
+            generate_fn=self._raw_generate,
+            harness=self._harness,
+            config=AgentConfig(
+                max_turns=10,
+                agent_max_tokens=self._agent_max_tokens,
+                context_size=self._context_size,
+                supports_thinking=self._supports_thinking,
+            ),
+            projects_dir=PROJECTS_DIR,
+            log_path=LOGS_DIR / "agentic-error.log",
+        )
+
     @property
     def model_label(self) -> str:
         return self._model_meta["label"]
+
+    def _raw_generate(self, messages: List[dict], max_tokens: int, temperature: float) -> str:
+        """
+        Low-level generate used by BobAgent.
+        Matches the (messages, max_tokens, temperature) -> str signature expected
+        by the agent package.  Delegates to _completion_text so all the existing
+        context-trimming and thinking-block stripping still applies.
+        """
+        return self._completion_text(
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            thinking=self._supports_thinking,
+        )
 
     def _approx_tokens(self, messages_or_text) -> int:
         if isinstance(messages_or_text, str):
@@ -2476,142 +2505,13 @@ class LLMEngine:
             return None
 
     def _run_agentic_project_task_inner(self, user_text: str, on_token, on_speak=None) -> Optional[str]:
-        # Quick spoken plan before tools run
-        plan = self._quick_plan(user_text)
-        if plan:
-            if on_speak:
-                on_speak(plan)
-            else:
-                on_token(plan)
-        suggested = self._meaningful_project_name(user_text)
-        on_token("Checking the projects folder before deciding what to do…")
-        initial_results = self._harness.run_calls([
-            {"tool": "list_project_tree", "args": {"path": ".", "max_files": 220}}
-        ], on_update=on_token)
-        must_inspect = self._requires_project_inspection(user_text)
-        must_mutate = self._requires_mutation(user_text)
-        existing_projects = self._existing_projects_from_tree_result(initial_results)
-        focused_project = self._infer_existing_project(user_text, existing_projects)
-        if focused_project:
-            self._active_project = focused_project
-        messages = [
-            {"role": "system", "content": TOOL_SYSTEM},
-            {
-                "role": "user",
-                "content": (
-                    f"User request: {user_text}\n\n"
-                    f"Suggested folder name if creating something new: {suggested}\n"
-                    f"Current selected project, if editing existing work: {focused_project or self._active_project or 'none'}\n"
-                    f"Must inspect existing project files before answering: {'yes' if must_inspect else 'no'}\n"
-                    f"Must make a real file change before claiming completion: {'yes' if must_mutate else 'no'}\n"
-                    + (
-                        "ACTION REQUIRED: Read the relevant files, then immediately call write_project_file or "
-                        "edit_project_file with the actual requested changes. Do not stop after reading — make the edits.\n"
-                        if must_mutate else ""
-                    )
-                    + "\nInitial projects/ tree:\n"
-                    f"{json.dumps(initial_results, ensure_ascii=False)[:3000]}\n\n"
-                    "Use tools to perform the work inside projects/. If the request refers to existing work, "
-                    "read the relevant files then edit them. Keep all edits inside the selected project unless the user explicitly asks to create or rename another folder. "
-                    "If you cannot find the right project, say what you found and ask a short clarification."
-                ),
-            },
-        ]
-
-        all_results: List[dict] = list(initial_results)
-        inspected = not must_inspect
-        _empty_draft_streak = 0
-        _mutation_nudge_count = 0
-        for turn in range(10):
-            messages = self._prepare_messages_for_context(messages, max_tokens=self._agent_max_tokens, on_update=on_token)
-            draft = self._completion_text(messages, max_tokens=self._agent_max_tokens, temperature=0.16, on_update=on_token, thinking=True)
-            if not draft:
-                _empty_draft_streak += 1
-                if _empty_draft_streak >= 2:
-                    break
-            else:
-                _empty_draft_streak = 0
-            status = self._harness.parse_status(draft)
-            if status:
-                on_token(status)
-            calls = self._harness.parse_tool_calls(draft)
-            if not calls:
-                if all_results:
-                    if must_inspect and not inspected:
-                        messages.append({
-                            "role": "user",
-                            "content": (
-                                "You have not inspected the project files yet. "
-                                "Use list_project_tree or read_project_file to read the relevant files first, "
-                                "then make the requested changes."
-                            ),
-                        })
-                        continue
-                    if must_mutate and not self._has_real_build_output(all_results):
-                        _mutation_nudge_count += 1
-                        if _mutation_nudge_count == 1:
-                            nudge = (
-                                f"You have read the files but made NO actual changes yet. "
-                                f"The user asked: \"{user_text}\". "
-                                "You MUST now call write_project_file or edit_project_file to make those changes. "
-                                "Do not re-read files. Do not explain what you would do. "
-                                "Output a tool call with the new or updated file content right now."
-                            )
-                        else:
-                            nudge = (
-                                f"You still have not made any file edits. STOP. "
-                                f"The user wants: \"{user_text}\". "
-                                "Call write_project_file or edit_project_file NOW with the actual changed content. "
-                                "Example: {{\"tool_calls\":[{{\"tool\":\"write_project_file\","
-                                "\"args\":{{\"path\":\"project/style.css\",\"content\":\"/* new CSS here */\"}}}}]}} "
-                                "Make the edit now — do not read any more files."
-                            )
-                        messages.append({"role": "user", "content": nudge})
-                        continue
-                    return self._agent_result_message(user_text, messages, draft)
-                return None
-
-            tool_names = ", ".join(str(c.get("tool")) for c in calls[:3])
-            extra = "" if len(calls) <= 3 else f", plus {len(calls) - 3} more"
-            on_token(f"Working in projects/: {tool_names}{extra}…")
-            results = self._harness.run_calls(calls, on_update=on_token)
-            all_results.extend(results)
-            self._update_active_project_from_results(results)
-            if any(r.get("tool") in {"list_project_tree", "find_project_files", "grep_project", "read_project_file", "read_file", "list_files"} and r.get("ok") for r in results):
-                inspected = True
-            verification = self._auto_verify_after_mutations(results, on_token)
-            if verification:
-                all_results.extend(verification)
-            messages.append({"role": "assistant", "content": draft})
-            result_payload = results
-            if verification:
-                result_payload = results + [{"tool": "auto_verify", "ok": True, "result": verification}]
-            errors_for_model = self._harness.actionable_errors(results)
-            if errors_for_model:
-                result_payload = result_payload + [{
-                    "tool": "error_summary",
-                    "ok": False,
-                    "error": "; ".join(errors_for_model[:3]),
-                }]
-            # Budget-aware truncation: each tool-result turn shares the remaining
-            # context headroom. Cap at 3000 chars to leave room for future turns.
-            tool_result_json = json.dumps(result_payload, ensure_ascii=False)
-            current_ctx_chars = sum(len(str(m.get("content", ""))) for m in messages)
-            remaining_budget = max(1500, (self._context_size * 3) - current_ctx_chars)
-            tool_result_cap = min(3000, remaining_budget)
-            messages.append({
-                "role": "user",
-                "content": "Tool results:\n" + tool_result_json[:tool_result_cap],
-            })
-
-            actionable_errors = self._harness.actionable_errors(results)
-            if actionable_errors:
-                first_error = actionable_errors[0]
-                on_token(f"Tool issue: {first_error}. Adjusting the next step…")
-
-        if not self._has_real_build_output(all_results):
-            return None
-        return self._summarize_tool_results(all_results)
+        # Delegate to the Claude Code-style agent runtime in bob/agent.py.
+        # The agent keeps its own active_project state; sync it back afterward
+        # so the rest of LLMEngine stays consistent.
+        result = self._agent.run(user_text, on_token, on_speak=on_speak)
+        if self._agent._active_project:
+            self._active_project = self._agent._active_project
+        return result
 
     def _extract_code_from_direct_answer(self, draft: str, user_text: str) -> tuple[str, str]:
         """Recover useful code if Gemma ignored the tool protocol."""

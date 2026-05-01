@@ -205,7 +205,7 @@ PY
 
 install_terminal_command() {
   local target_dir="$HOME/.local/bin"
-  local launcher="$(pwd)/bob"
+  local launcher="$(pwd)/run_bob"
 
   if [ ! -x "$launcher" ]; then
     chmod +x "$launcher" >> "$LOG_FILE" 2>&1 || true
