@@ -2034,7 +2034,8 @@ class LLMEngine:
         self._memory_summary = ""
 
         # ── Claude Code-style agent runtime ───────────────────────────────────
-        from bob import BobAgent, AgentConfig
+        from agent_runtime import BobAgent
+        from agent_types import AgentConfig
         self._agent = BobAgent(
             generate_fn=self._raw_generate,
             harness=self._harness,

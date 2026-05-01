@@ -14,10 +14,10 @@ from __future__ import annotations
 from typing import Callable, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from bob.session import AgentSession
-    from bob.types import AgentConfig
+    from agent_session import AgentSession
+    from agent_types import AgentConfig
 
-from bob.prompts import COMPACT_SYSTEM
+from agent_prompts import COMPACT_SYSTEM
 
 
 GenerateFn = Callable[[List[dict], int, float], str]
@@ -46,7 +46,7 @@ def compact_session(
     are always kept.  Everything else is compressed into a summary that is
     injected as a synthetic user turn.
     """
-    from bob.session import AgentMessage, AgentSession
+    from agent_session import AgentMessage, AgentSession
 
     messages = session.messages
     preserve = config.compact_preserve_recent

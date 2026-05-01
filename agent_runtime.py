@@ -29,15 +29,15 @@ import traceback
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from bob.compact import compact_session, should_compact
-from bob.prompts import (
+from agent_compact import compact_session, should_compact
+from agent_prompts import (
     QUICK_PLAN_SYSTEM,
     build_initial_user_message,
     build_system_prompt,
 )
-from bob.session import AgentSession
-from bob.types import AgentConfig, NudgeState
-from bob.workspace import (
+from agent_session import AgentSession
+from agent_types import AgentConfig, NudgeState
+from agent_workspace import (
     changed_project_roots,
     existing_projects_from_results,
     has_inspection,
